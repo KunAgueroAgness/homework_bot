@@ -95,7 +95,7 @@ def parse_status(homework):
     if homework:
         homework_name = homework.get('homework_name')
         if not homework_name:
-            logger.error(f'отсутствует или пустое поле: {homework_name}')
+            logger.error(f'Отсутствует или пустое поле: {homework_name}')
             raise KeyError
         homework_status = homework.get('status')
         if homework_status not in HOMEWORK_STATUSES:
@@ -130,7 +130,7 @@ def main():
                 message = parse_status(homeworks[0])
                 send_message(bot, message)
             else:
-                logger.debug('новые статусы в ответе отсутствуют')
+                logger.debug('Новые статусы в ответе отсутствуют')
             current_timestamp = response.get('current_date')
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
