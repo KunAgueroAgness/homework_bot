@@ -9,6 +9,7 @@ import requests
 import telegram
 from dotenv import load_dotenv
 from requests import RequestException
+from exeptions import CustomErrorGetApiAnswer, CustomErrorSendMessage
 
 load_dotenv()
 
@@ -23,29 +24,21 @@ ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
 
-HOMEWORK_STATUSES = {
+HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
     'reviewing': 'Работа взята на проверку ревьюером.',
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-handler = logging.StreamHandler()
-str_fmt = '[%(asctime)s] [%(levelname)s] > %(message)s'
-date_fmt = '%Y-%m-%d %H:%M:%S'
-formatter = logging.Formatter(fmt=str_fmt, datefmt=date_fmt)
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-
 
 def send_message(bot, message):
     """Отправляет сообщение в Telegram чат."""
+    logger.info('Бот начал отправку сообщения.')
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.info(f'Отправлено сообщение: {message}')
-    except telegram.TelegramError:
-        logger.error('Не удалось отправить сообщение.')
+    except telegram.TelegramError as error:
+        raise CustomErrorSendMessage(f'{error}')
 
 
 def get_api_answer(current_timestamp):
@@ -59,13 +52,12 @@ def get_api_answer(current_timestamp):
             try:
                 return response.json()
             except json.decoder.JSONDecodeError:
-                logger.error(
+                raise CustomErrorGetApiAnswer(
                     'Ошибка преобразования формата JSON к типам данных Python')
         else:
-            logger.error(
+            raise AssertionError(
                 f'Недоступность эндпоинта {ENDPOINT}. Код ответа API: {status}'
             )
-            raise AssertionError
     except RequestException:
         logger.exception(f'Ошибка при запросе к эндпоинту {ENDPOINT}.')
 
@@ -73,13 +65,11 @@ def get_api_answer(current_timestamp):
 def check_response(response):
     """Проверяет ответ API на корректность."""
     if type(response) is not dict:
-        logger.error('Ответ API не является словарем.')
-        raise TypeError
+        raise TypeError('Ответ API не является словарем.')
 
     if ('current_date' in response) and ('homeworks' in response):
         if type(response['homeworks']) is not list:
-            logger.error('Ответ API не соответствует.')
-            raise TypeError
+            raise TypeError('Ответ API не соответствует.')
         homeworks = response.get('homeworks')
         return homeworks
     else:
@@ -95,17 +85,14 @@ def parse_status(homework):
     if homework:
         homework_name = homework.get('homework_name')
         if not homework_name:
-            logger.error(f'Отсутствует или пустое поле: {homework_name}')
-            raise KeyError
+            raise KeyError(f'Отсутствует или пустое поле: {homework_name}')
         homework_status = homework.get('status')
-        if homework_status not in HOMEWORK_STATUSES:
-            logger.error(f'Неизвестный статус: {homework_status}')
-            raise KeyError
-        verdict = HOMEWORK_STATUSES[homework_status]
+        if homework_status not in HOMEWORK_VERDICTS:
+            raise KeyError(f'Неизвестный статус: {homework_status}')
+        verdict = HOMEWORK_VERDICTS[homework_status]
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     else:
-        logger.error('Пустой словарь')
-        raise KeyError
+        raise KeyError('Пустой словарь')
 
 
 def check_tokens():
@@ -121,14 +108,16 @@ def main():
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
-
+    message1 = ''
     while True:
         try:
             response = get_api_answer(current_timestamp)
             homeworks = check_response(response)
             if homeworks:
                 message = parse_status(homeworks[0])
-                send_message(bot, message)
+                if message1 != message:
+                    send_message(bot, message)
+                    message1 = message
             else:
                 logger.debug('Новые статусы в ответе отсутствуют')
             current_timestamp = response.get('current_date')
@@ -141,4 +130,14 @@ def main():
 
 
 if __name__ == '__main__':
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    handler = logging.StreamHandler()
+    str_fmt = ('[%(asctime)s] [%(levelname)s] '
+               '[%(funcName)s] [%(lineno)d]> %(message)s'
+               )
+    date_fmt = '%Y-%m-%d %H:%M:%S'
+    formatter = logging.Formatter(fmt=str_fmt, datefmt=date_fmt)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
     main()
